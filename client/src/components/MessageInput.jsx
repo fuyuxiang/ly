@@ -11,6 +11,16 @@ function formatFileSize(size) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`
 }
 
+function getFileLabel(name, type) {
+  const ext = name?.split('.').pop()?.toUpperCase()
+  if (ext && ext !== name?.toUpperCase()) return ext
+  if (type === 'image') return '图片'
+  if (type === 'pdf_images') return 'PDF'
+  if (type === 'document') return '文档'
+  if (type === 'text') return '文本'
+  return '文件'
+}
+
 function isImage(file) {
   return file.type.startsWith('image/') || IMAGE_PATTERN.test(file.name)
 }
@@ -119,11 +129,20 @@ function buildMessageContent(text, attachments) {
     content = contentParts
   }
 
-  const fileNames = attachments.map(att => att.name).filter(Boolean)
-  const fileSuffix = fileNames.length > 0 ? `[${fileNames.join(', ')}]` : ''
-  const display = text
-    ? (fileSuffix ? `${text} ${fileSuffix}` : text)
-    : (fileSuffix || '请分析这些附件。')
+  const displayText = text || (attachments.some(att => att.type === 'image' || att.type === 'pdf_images')
+    ? '请分析这些图片。'
+    : '请分析这些附件。')
+  const display = attachments.length > 0
+    ? {
+        type: 'user_message_display',
+        text: displayText,
+        attachments: attachments.map(att => ({
+          name: att.name,
+          size: formatFileSize(att.size),
+          label: getFileLabel(att.name, att.type),
+        })),
+      }
+    : displayText
   return { display, content }
 }
 
@@ -232,7 +251,7 @@ export default function MessageInput({ onSend, onStop, disabled, streaming }) {
         value={input}
         onChange={e => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={streaming ? '正在生成回复...' : processingFiles ? '正在读取文件...' : '输入问题或任务...'}
+        placeholder={streaming ? '正在生成回复...' : processingFiles ? '正在读取文件...' : '询问任何问题'}
         rows={1}
         disabled={(disabled && !streaming) || processingFiles}
       />

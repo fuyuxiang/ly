@@ -1,7 +1,29 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import MessageBubble from './MessageBubble'
 import MessageInput from './MessageInput'
-import heroArtwork from '../assets/hero.png'
+
+function normalizeMessageContent(content) {
+  if (Array.isArray(content)) return content
+  if (typeof content === 'string') return content
+  if (content?.type === 'user_message_display') return content.text || ''
+  return String(content || '')
+}
+
+function hasMessageContent(content) {
+  const normalized = normalizeMessageContent(content)
+  if (Array.isArray(normalized)) return normalized.length > 0
+  return normalized.trim().length > 0
+}
+
+function buildConversationMemory(messages) {
+  return messages
+    .filter(message => ['system', 'user', 'assistant'].includes(message.role))
+    .filter(message => hasMessageContent(message.content))
+    .map(message => ({
+      role: message.role,
+      content: normalizeMessageContent(message.content),
+    }))
+}
 
 export default function ChatArea({ conversation, onUpdateMessages, onRenameConversation, onNewChat, sidebarOpen, onToggleSidebar }) {
   const [streaming, setStreaming] = useState(false)
@@ -16,8 +38,8 @@ export default function ChatArea({ conversation, onUpdateMessages, onRenameConve
   const editingTitle = conversation?.id === editingConversationId
   const quickPrompts = [
     '帮我把这个想法整理成执行计划',
-    '总结一段文字并提炼重点',
-    '写一封清晰专业的邮件',
+    '总结一段文字，并提炼重点',
+    '写一封清晰、专业的邮件',
     '分析一个技术方案的利弊',
   ]
 
@@ -28,14 +50,16 @@ export default function ChatArea({ conversation, onUpdateMessages, onRenameConve
       return
     }
 
+    const conversationId = conversation.id
     const userMessage = { role: 'user', content, display: display || content }
     const newMessages = [...messages, userMessage]
-    onUpdateMessages(newMessages)
+    const conversationMemory = buildConversationMemory(newMessages)
+    onUpdateMessages(conversationId, newMessages)
 
     setStreaming(true)
     const assistantMessage = { role: 'assistant', content: '' }
     const streamMessages = [...newMessages, assistantMessage]
-    onUpdateMessages(streamMessages)
+    onUpdateMessages(conversationId, streamMessages)
 
     try {
       const controller = new AbortController()
@@ -44,9 +68,13 @@ export default function ChatArea({ conversation, onUpdateMessages, onRenameConve
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages.map(m => ({ role: m.role, content: m.content })) }),
+        body: JSON.stringify({ messages: conversationMemory }),
         signal: controller.signal,
       })
+
+      if (!res.body) {
+        throw new Error('服务端没有返回可读取的响应流')
+      }
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
@@ -79,11 +107,11 @@ export default function ChatArea({ conversation, onUpdateMessages, onRenameConve
           }
         }
 
-        onUpdateMessages([...newMessages, { role: 'assistant', content: fullContent }])
+        onUpdateMessages(conversationId, [...newMessages, { role: 'assistant', content: fullContent }])
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
-        onUpdateMessages([...newMessages, { role: 'assistant', content: `[请求失败: ${err.message}]` }])
+        onUpdateMessages(conversationId, [...newMessages, { role: 'assistant', content: `[请求失败: ${err.message}]` }])
       }
     } finally {
       setStreaming(false)
@@ -149,23 +177,19 @@ export default function ChatArea({ conversation, onUpdateMessages, onRenameConve
               </svg>
             </button>
           )}
-          <div className="chat-title-block">
-            <span className="chat-eyebrow">AI 智能助手</span>
-            <h2>新对话</h2>
-          </div>
           <div className="chat-status">
             <span className="status-dot"></span>
             就绪
           </div>
         </div>
         <div className="chat-empty">
-          <div className="empty-visual" aria-hidden="true">
-            <img src={heroArtwork} alt="" />
+          <div className="empty-logo" aria-hidden="true">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+              <path d="M12 3l2.6 5.4L20 11l-5.4 2.6L12 19l-2.6-5.4L4 11l5.4-2.6L12 3z"/>
+            </svg>
           </div>
           <div className="empty-copy">
-            <span>AI 智能助手</span>
-            <h1>今天想推进什么？</h1>
-            <p>从写作、分析到代码思路，直接把任务交给 AI 智能助手。</p>
+            <h1>有什么可以帮忙的？</h1>
           </div>
           <div className="prompt-grid">
             {quickPrompts.map(prompt => (
@@ -191,7 +215,6 @@ export default function ChatArea({ conversation, onUpdateMessages, onRenameConve
           </button>
         )}
         <div className="chat-title-block">
-          <span className="chat-eyebrow">当前会话</span>
           {editingTitle ? (
             <form className="title-edit-form" onSubmit={e => { e.preventDefault(); handleSaveTitle() }}>
               <input

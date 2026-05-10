@@ -7,6 +7,20 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2)
 }
 
+function getMessageTitleText(message) {
+  const displayContent = message.display || message.content
+
+  if (displayContent?.type === 'user_message_display') {
+    return displayContent.text || displayContent.attachments?.[0]?.name || '文件对话'
+  }
+
+  if (Array.isArray(displayContent)) {
+    return displayContent.find(p => p.type === 'text')?.text || '图片对话'
+  }
+
+  return String(displayContent || '新对话')
+}
+
 function App() {
   const [conversations, setConversations] = useState(() => {
     const saved = localStorage.getItem('mygpt-conversations')
@@ -23,7 +37,11 @@ function App() {
   }, [conversations])
 
   useEffect(() => {
-    if (activeId) localStorage.setItem('mygpt-active', activeId)
+    if (activeId) {
+      localStorage.setItem('mygpt-active', activeId)
+    } else {
+      localStorage.removeItem('mygpt-active')
+    }
   }, [activeId])
 
   const activeConversation = conversations.find(c => c.id === activeId)
@@ -40,15 +58,12 @@ function App() {
     setActiveId(id)
   }
 
-  function handleUpdateMessages(messages) {
+  function handleUpdateMessages(conversationId, messages) {
     setConversations(prev => prev.map(c => {
-      if (c.id !== activeId) return c
+      if (c.id !== conversationId) return c
       if (c.title !== '新对话' || messages.length === 0) return { ...c, messages }
       const firstMsg = messages[0]
-      const displayContent = firstMsg.display || firstMsg.content
-      const text = Array.isArray(displayContent)
-        ? (displayContent.find(p => p.type === 'text')?.text || '图片对话')
-        : displayContent
+      const text = getMessageTitleText(firstMsg)
       const title = text.slice(0, 20) + (text.length > 20 ? '...' : '')
       return { ...c, messages, title }
     }))
